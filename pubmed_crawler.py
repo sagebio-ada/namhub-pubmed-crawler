@@ -72,7 +72,7 @@ def get_args():
         default="syn75404715",
         help=(
             "Synapse table/view ID containing grant numbers in the "
-            "'GrantNumber' column. (Default: syn75404715, the NAMHub "
+            "'grantNumber' column. (Default: syn75404715, the NAMHub "
             "Grants table)"
         ),
     )
@@ -98,17 +98,17 @@ def get_args():
 
 
 def get_grants(syn, grant_id):
-    """Get grant numbers and their Synapse GrantId from the Grants table.
+    """Get grant numbers and their Synapse grantId from the Grants table.
 
     Assumptions:
-        Synapse table has `GrantId` and `GrantNumber` columns.
+        Synapse table has `grantId` and `grantNumber` columns.
 
     Returns:
         df: grants with non-empty grant numbers
     """
     print("Querying for grant numbers... ")
-    grants = query(f"SELECT GrantId, GrantNumber FROM {grant_id}")
-    grants = grants[grants["GrantNumber"].notna() & (grants["GrantNumber"] != "")]
+    grants = query(f"SELECT grantId, grantNumber FROM {grant_id}")
+    grants = grants[grants["grantNumber"].notna() & (grants["grantNumber"] != "")]
     print(f"  Number of grants: {len(grants)}\n")
     return grants
 
@@ -120,7 +120,7 @@ def get_pmids(grants):
         set: PubMed IDs
     """
     print("Getting PMIDs from NCBI... ")
-    grant_numbers = grants["GrantNumber"].tolist()
+    grant_numbers = grants["grantNumber"].tolist()
     search_term = "[Grant number] OR ".join(grant_numbers) + "[Grant number]"
     handle = Entrez.esearch(
         db="pubmed", term=search_term, retmax=100_000, retmode="xml", sort="relevance"
@@ -145,20 +145,20 @@ def normalize_grant_number(raw):
 
 
 def match_grant_ids(pubmed_grants, curr_grants):
-    """Match a publication's raw PubMed grant strings to NAMHub GrantIds.
+    """Match a publication's raw PubMed grant strings to NAMHub grantIds.
 
     PubMed grant strings often include activity-code prefixes or suffixes
     (e.g. "5 UM1 TR006029 - 03") that don't exactly match the NAMHub
-    `GrantNumber` value, so numbers are compared with punctuation/whitespace
+    `grantNumber` value, so numbers are compared with punctuation/whitespace
     stripped.
 
     Returns:
-        set: matched NAMHub GrantId values
+        set: matched NAMHub grantId values
     """
     known = {
         normalize_grant_number(number): grant_id
         for number, grant_id in zip(
-            curr_grants["GrantNumber"], curr_grants["GrantId"]
+            curr_grants["grantNumber"], curr_grants["grantId"]
         )
     }
     matched = set()
@@ -260,21 +260,24 @@ def pull_info(pmids, curr_grants, email):
         grant_ids = match_grant_ids(grants, curr_grants)
 
         publication_info = {
-            "PubMedId": [pmid],
-            "PubMedLink": [f"https://pubmed.ncbi.nlm.nih.gov/{pmid}"],
-            "PublicationTitle": [title],
-            "PublicationYear": [int(year) if year else None],
-            "Authors": [", ".join(authors)],
-            "Journal": [journal],
-            "Keywords": [", ".join(keywords)],
-            "Doi": [doi],
-            "GrantId": ["; ".join(sorted(grant_ids))],
-            "NamId": [PENDING_ANNOTATION],
-            "StudyId": [PENDING_ANNOTATION],
-            "DataType": [PENDING_ANNOTATION],
-            "Assay": [PENDING_ANNOTATION],
-            "SynapseEntityId": [None],
-            "Accessibility": [accessibility],
+            "pubMedId": [pmid],
+            "pubMedLink": [f"https://pubmed.ncbi.nlm.nih.gov/{pmid}"],
+            "publicationTitle": [title],
+            "publicationYear": [int(year) if year else None],
+            "authors": [", ".join(authors)],
+            "journal": [journal],
+            # grantId, studyId, namId, dataType, and assay are all
+            # multi-value (STRING_LIST) columns on the live Publications
+            # table, so multiple values are comma-separated here.
+            "keywords": [", ".join(keywords)],
+            "doi": [doi],
+            "grantId": [", ".join(sorted(grant_ids))],
+            "namId": [PENDING_ANNOTATION],
+            "studyId": [PENDING_ANNOTATION],
+            "dataType": [PENDING_ANNOTATION],
+            "assay": [PENDING_ANNOTATION],
+            "synapseEntityId": [None],
+            "accessibility": [accessibility],
         }
         row = pd.DataFrame(publication_info)
         table.append(row)
@@ -296,7 +299,7 @@ def find_publications(syn, grant_id, table_id, email):
         table_name = Table(id=table_id).get().name
         print(f"Comparing with table: {table_name}...")
         current_pmids = (
-            query(f'SELECT "PubMedId" FROM {table_id}')["PubMedId"]
+            query(f'SELECT "pubMedId" FROM {table_id}')["pubMedId"]
             .astype(str)
             .tolist()
         )
@@ -372,7 +375,7 @@ def main():
 
         # Generate manifest with open-access publications listed first.
         generate_manifest(
-            table.sort_values(by="Accessibility"), args.output_name
+            table.sort_values(by="accessibility"), args.output_name
         )
 
     print("-- DONE --")

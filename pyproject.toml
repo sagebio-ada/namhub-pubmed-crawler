@@ -1,0 +1,13 @@
+[project]
+name = "namhub-pubmed-crawler"
+version = "0.1.0"
+description = "Publications manifest generator for NAMHub"
+requires-python = ">=3.12"
+dependencies = [
+    "synapseclient>=4.9.0",
+    "pandas>=2.3.3",
+    "biopython>=1.86",
+    "openpyxl>=3.1.5",
+    "requests>=2.32.0",
+    "urllib3>=2.7.0",
+]

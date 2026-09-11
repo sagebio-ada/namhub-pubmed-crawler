@@ -3,6 +3,7 @@ output/
 
 # Secrets
 .env
+.envTemplate
 pc_creds
 
 # Byte-compiled / optimized / DLL files

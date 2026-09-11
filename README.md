@@ -84,12 +84,8 @@ found in a folder called `output`, with a name like
     uv sync
     ```
 
-4. Set environment variables from `.env` so that the scripts will have
-   access to the credentials.
-
-    ```
-    export $(grep -v '^#' .env | xargs)
-    ```
+   `.env` is loaded automatically at runtime (via `python-dotenv`), so no
+   need to `export` its contents manually.
 
 ### Usage
 

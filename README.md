@@ -107,8 +107,8 @@ uv run pubmed_crawler.py -g <grant_table_id> -t <publications_table_id>
 When using a different table of grants, ensure that its schema has at least
 the following columns:
 
-- `GrantId`
-- `GrantNumber`
+- `grantId`
+- `grantNumber`
 
 Below is the full usage of the script:
 
@@ -123,7 +123,7 @@ optional arguments:
   -h, --help            show this help message and exit
   -g GRANT_ID, --grant_id GRANT_ID
                         Synapse table/view ID containing grant numbers in
-                        the 'GrantNumber' column. (Default: syn75404715, the
+                        the 'grantNumber' column. (Default: syn75404715, the
                         NAMHub Grants table)
   -t TABLE_ID, --table_id TABLE_ID
                         Synapse table holding already-curated PubMed info,
@@ -144,15 +144,19 @@ minutes. Once complete, a manifest will be found in a folder called
 `output`, with a name like `<yyyy-mm-dd>_publications-manifest.xlsx`.
 
 The manifest's `manifest` sheet has one row per new publication, with
-columns matching the [NAMHub Publications schema]. Some required columns —
-`NamId`, `StudyId`, `DataType`, and `Assay` — cannot be determined from
-PubMed metadata alone, and are filled in as `Pending Annotation` for a
-curator to fill in by hand before the rows are uploaded to Synapse. A
-`standard_terms` sheet lists the current controlled-vocabulary values for
-`DataType` and `Assay` to help with that curation. An extra `Accessibility`
-column (not part of the Publications schema) reports each publication's
-open-access status from Unpaywall, and is used to sort open-access
-publications first, since those are generally easier to review.
+columns matching the live NAMHub Publications table (`camelCase`, e.g.
+`pubMedId`, `grantId`) rather than the LinkML/JSON-schema's `PascalCase`
+field names. Some required columns — `namId`, `studyId`, `dataType`, and
+`assay` — cannot be determined from PubMed metadata alone, and are filled
+in as `Pending Annotation` for a curator to fill in by hand before the rows
+are uploaded to Synapse. `grantId`, `studyId`, `namId`, `dataType`, and
+`assay` are all multi-value (`STRING_LIST`) columns on the live table, so
+manually-curated values should be comma-separated. A `standard_terms`
+sheet lists the current controlled-vocabulary values for `dataType` and
+`assay` to help with that curation. An extra `accessibility` column (not
+part of the Publications table) reports each publication's open-access
+status from Unpaywall, and is used to sort open-access publications first,
+since those are generally easier to review.
 
 <!-- Links -->
 

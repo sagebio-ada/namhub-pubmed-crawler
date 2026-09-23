@@ -25,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import pandas as pd
+from Bio import Entrez
 
 from pubmed_crawler import (
     PENDING_ANNOTATION,
@@ -32,7 +33,9 @@ from pubmed_crawler import (
     _fetch_oa_status,
     base_grant_number,
     generate_manifest,
+    get_europepmc_records,
     get_grants,
+    get_keywords,
     get_related_info,
     get_studies,
     login,
@@ -136,7 +139,12 @@ def build_table(records, curr_grants, email, studies_by_grant=None):
         ):
             oa_map[raw_doi] = accessibility
 
-    related_info_map = get_related_info({r["pmid"] for r in records if r["pmid"]})
+    all_pmids = {r["pmid"] for r in records if r["pmid"]}
+    related_info_map = get_related_info(all_pmids)
+    keywords_map = {
+        rec["pmid"]: ", ".join(get_keywords(rec))
+        for rec in get_europepmc_records(all_pmids)
+    }
 
     rows = []
     for r in records:
@@ -156,7 +164,7 @@ def build_table(records, curr_grants, email, studies_by_grant=None):
             "publicationYear": [int(r["year"]) if r["year"] else None],
             "authors": [r["authors"]],
             "journal": [r["journal"]],
-            "keywords": [""],
+            "keywords": [keywords_map.get(r["pmid"], "")],
             "doi": ["https://doi.org/" + r["doi"] if r["doi"] else None],
             "grantId": [", ".join(sorted(grant_ids))],
             "namId": [PENDING_ANNOTATION],
@@ -175,6 +183,8 @@ def main():
     syn = login()
     args = get_args()
     email = os.getenv("ENTREZ_EMAIL")
+    Entrez.email = email
+    Entrez.api_key = os.getenv("ENTREZ_API_KEY")
 
     curr_grants = get_grants(syn, args.grant_id)
     studies_by_grant = get_studies(syn, args.study_id)

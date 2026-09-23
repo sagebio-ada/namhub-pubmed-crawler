@@ -394,29 +394,45 @@ def parse_dbgap(info):
     return gap_ids
 
 
-def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studies_by_grant=None):
-    """Create dataframe of publications and their pulled data.
+def get_keywords(record):
+    """Get a publication's keywords, falling back to MeSH terms.
 
-    Publication data is pulled in bulk using the Europe PMC API, since it's
-    faster than Entrez. Open-access status is pulled from the Unpaywall API.
-
-    Assumptions:
-        Number of new publications per run is <1,000, as the Europe PMC API
-        has a limit of 1,000 results per request.
+    The Publications schema's `keywords` field is documented as "Publication
+    keywords or MeSH terms" -- author-supplied keywords aren't always
+    present (e.g. many journals only get NLM-assigned MeSH headings), so
+    fall back to those when there's no keywordList.
 
     Returns:
-        df: publications data, columns matching the NAMHub Publications schema
+        list: keyword or MeSH descriptor strings
+    """
+    keywords = record.get("keywordList", {}).get("keyword")
+    if keywords:
+        return keywords
+    mesh_headings = record.get("meshHeadingList", {}).get("meshHeading", [])
+    return [m["descriptorName"] for m in mesh_headings if m.get("descriptorName")]
+
+
+def get_europepmc_records(pmids, max_retries=3):
+    """Bulk-fetch Europe PMC "core" records for a set of PMIDs.
+
+    Faster than Entrez efetch, and includes keywords, grantsList, etc.
+    Retries on a transient Europe PMC search-service failure.
+
+    Assumptions:
+        Number of PMIDs per call is <1,000, as the Europe PMC API has a
+        limit of 1,000 results per request.
+
+    Returns:
+        list: matching records (excludes errata), filtered to the given PMIDs
     """
     pmc_url = "https://www.ebi.ac.uk/europepmc/webservices/rest/searchPOST"
-    search_query = " OR ".join(pmids)
     data = {
-        "query": search_query,
+        "query": " OR ".join(pmids),
         "resultType": "core",
         "format": "json",
         "pageSize": 1_000,
     }
     results = None
-    max_retries = 3
     for attempt in range(max_retries):
         response = json.loads(requests.post(url=pmc_url, data=data).content)
         result_list = response.get("resultList")
@@ -429,12 +445,23 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studie
     if results is None:
         raise RuntimeError(f"Europe PMC search failed after {max_retries} attempts: {response}")
 
-    # Filter down to only publications that are in the list of PMIDs and not errata.
-    filtered_results = [
+    return [
         r for r in results
         if r.get("pmid") in pmids
         and "Published Erratum" not in r.get("pubTypeList", {}).get("pubType", [])
     ]
+
+
+def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studies_by_grant=None):
+    """Create dataframe of publications and their pulled data.
+
+    Publication data is pulled in bulk using the Europe PMC API, since it's
+    faster than Entrez. Open-access status is pulled from the Unpaywall API.
+
+    Returns:
+        df: publications data, columns matching the NAMHub Publications schema
+    """
+    filtered_results = get_europepmc_records(pmids)
 
     # Fetch OA statuses for all qualifying publications.
     unique_dois = {r.get("doi") for r in filtered_results}
@@ -467,7 +494,7 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studie
             ]
         except AttributeError:
             authors = []  # There is not an author list with this publication.
-        keywords = result.get("keywordList", {}).get("keyword", "")
+        keywords = get_keywords(result)
 
         accessibility = oa_map.get(raw_doi, "Unknown")
 

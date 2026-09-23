@@ -150,8 +150,8 @@ def build_table(records, curr_grants, email, studies_by_grant=None):
             "grantId": [", ".join(sorted(grant_ids))],
             "namId": [PENDING_ANNOTATION],
             "studyId": [", ".join(sorted(study_ids)) if study_ids else PENDING_ANNOTATION],
-            "dataType": [PENDING_ANNOTATION],
             "assay": [PENDING_ANNOTATION],
+            "tissue": [PENDING_ANNOTATION],
             "synapseEntityId": [None],
             "accessibility": [oa_map.get(r["doi"], "Unknown")],
         }

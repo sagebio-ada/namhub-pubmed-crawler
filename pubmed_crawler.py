@@ -384,7 +384,7 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studie
             "publicationYear": [int(year) if year else None],
             "authors": [", ".join(authors)],
             "journal": [journal],
-            # grantId, studyId, namId, dataType, and assay are all
+            # grantId, studyId, namId, assay, and tissue are all
             # multi-value (STRING_LIST) columns on the live Publications
             # table, so multiple values are comma-separated here.
             "keywords": [", ".join(keywords)],
@@ -392,8 +392,8 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studie
             "grantId": [", ".join(sorted(grant_ids))],
             "namId": [PENDING_ANNOTATION],
             "studyId": [", ".join(sorted(study_ids)) if study_ids else PENDING_ANNOTATION],
-            "dataType": [PENDING_ANNOTATION],
             "assay": [PENDING_ANNOTATION],
+            "tissue": [PENDING_ANNOTATION],
             "synapseEntityId": [None],
             "accessibility": [accessibility],
             "secondaryGrantMatch": [", ".join(sorted(secondary_matches))],
@@ -444,14 +444,15 @@ def generate_manifest(table, output):
     for r in dataframe_to_rows(table, index=False, header=True):
         ws.append(r)
 
-    # Get latest Assay/DataType controlled-vocab terms from the NAMHub
-    # Publications JSON schema, so curators know what to fill in for the
-    # "Pending Annotation" columns.
+    # Get latest Assay controlled-vocab terms from the NAMHub Publications
+    # JSON schema, so curators know what to fill in for the "Pending
+    # Annotation" column. (Tissue has no controlled vocabulary -- it's a
+    # free-text field.)
     schema = requests.get(PUBLICATIONS_SCHEMA_URL, timeout=10).json()
-    terms = []
-    for field in ("Assay", "DataType"):
-        for value in schema["properties"][field]["items"]["enum"]:
-            terms.append({"category": field, "value": value})
+    terms = [
+        {"category": "Assay", "value": value}
+        for value in schema["properties"]["Assay"]["items"]["enum"]
+    ]
     cv_terms = pd.DataFrame(terms)
 
     ws2 = wb.create_sheet("standard_terms")

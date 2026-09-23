@@ -53,8 +53,15 @@ def get_args():
 
 
 def load_manifest(path):
-    """Load the "manifest" sheet of an xlsx as a dataframe of strings."""
-    return pd.read_excel(path, sheet_name="manifest", dtype=str)
+    """Load the "manifest" sheet of an xlsx as a dataframe of strings.
+
+    keep_default_na/na_values are disabled so that a literal cell value like
+    "N/A" (used deliberately, e.g. for a studyId that doesn't apply) isn't
+    silently read back as a missing value.
+    """
+    return pd.read_excel(
+        path, sheet_name="manifest", dtype=str, keep_default_na=False, na_values=[]
+    )
 
 
 def validate_headers(manifest, columns):

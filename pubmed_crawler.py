@@ -26,10 +26,13 @@ import pandas as pd
 import requests
 import synapseclient
 from Bio import Entrez
+from bs4 import BeautifulSoup
+from http.client import HTTPException
 from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.utils.dataframe import dataframe_to_rows
 from synapseclient.models import Table, query
+from urllib.error import HTTPError
 
 PUBLICATIONS_SCHEMA_URL = (
     "https://raw.githubusercontent.com/sagebio-ada/nam-hub-models/main/"
@@ -296,6 +299,101 @@ def _fetch_oa_status(raw_doi, email):
         return raw_doi, "Unknown"
 
 
+def get_related_info(pmids, batch_size=200, max_retries=3):
+    """Get related dataset information for a collection of PMIDs in batched elink calls.
+
+    NCBI's pubmed->gds elink is based on the "PubMed ID" field GEO/SRA/dbGaP
+    submitters attach to their own deposit -- i.e. it reflects datasets
+    generated for a publication, not just cited/reused by it.
+
+    Network issues may be encountered when making Entrez requests. Retry up
+    to `max_retries` times before skipping.
+
+    Returns:
+        dict: mapping of pmid -> XML for GEO, SRA, and dbGaP
+    """
+    result_map = {}
+    pmid_list = list(pmids)
+    for start in range(0, len(pmid_list), batch_size):
+        chunk = pmid_list[start : start + batch_size]
+        linksets = []
+        for attempt in range(max_retries):
+            try:
+                handle = Entrez.elink(
+                    dbfrom="pubmed",
+                    db="gds,sra,bioproject",
+                    # Passing a list (not a comma-joined string) makes NCBI
+                    # return one LinkSet per input PMID instead of a single
+                    # LinkSet aggregating results across the whole batch
+                    # (which would then get misattributed entirely to
+                    # whichever PMID happens to be first in that LinkSet's
+                    # IdList).
+                    id=chunk,
+                    retmode="xml",
+                )
+                linksets = Entrez.read(handle)
+                handle.close()
+                break
+            except (RuntimeError, HTTPException, HTTPError):
+                if attempt < max_retries - 1:
+                    print(
+                        f"  Network issue getting related info for PMID {chunk[0]}..{chunk[-1]}, trying again..."
+                    )
+                    time.sleep(1)
+                else:
+                    print(f"  ⚠️ Failed to get related info for PMID {chunk[0]}..{chunk[-1]}. Skipping...")
+        for linkset in linksets:
+            pmid = str(linkset.get("IdList", [None])[0])
+            if pmid is None:
+                continue
+            related_info = {}
+            for link_db in linkset.get("LinkSetDb", []):
+                db = re.search(r"pubmed_(.*)", link_db.get("LinkName")).group(1)
+                ids = [link.get("Id") for link in link_db.get("Link")]
+                handle = Entrez.esummary(db=db, id=",".join(ids))
+                soup = BeautifulSoup(handle, features="xml")
+                handle.close()
+                related_info[db] = soup
+            result_map[pmid] = related_info
+    return result_map
+
+
+def parse_geo(info):
+    """Parse and return GSE IDs."""
+    gse_ids = []
+    if info:
+        tags = info.find_all("Item", attrs={"Name": "GSE"})
+        gse_ids = ["GSE" + tag.text for tag in tags]
+    return gse_ids
+
+
+def parse_sra(info):
+    """Parse and return SRX/SRP IDs."""
+    srx_ids = srp_ids = []
+    if info:
+        tags = info.find_all("Item", attrs={"Name": "ExpXml"})
+        srx_ids = [
+            re.search(r'Experiment acc="(.*?)"', tag.text).group(1)
+            for tag in tags
+            if re.search(r'Experiment acc="(.*?)"', tag.text)
+        ]
+        srp_ids = {
+            re.search(r'Study acc="(.*?)"', tag.text).group(1)
+            for tag in tags
+            if re.search(r'Study acc="(.*?)"', tag.text)
+        }
+    return srx_ids, srp_ids
+
+
+def parse_dbgap(info):
+    """Parse and return study IDs."""
+    gap_ids = []
+    if info:
+        tags = info.find_all("Item", attrs={"Name": "d_study_id"})
+        gap_ids = [tag.text for tag in tags]
+    return gap_ids
+
+
 def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studies_by_grant=None):
     """Create dataframe of publications and their pulled data.
 
@@ -347,6 +445,9 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studie
         ):
             oa_map[raw_doi] = accessibility
 
+    # Fetch GEO/SRA/dbGaP accessions for datasets generated for each publication.
+    related_info_map = get_related_info({r.get("pmid") for r in filtered_results})
+
     table = []
     for result in filtered_results:
         pmid = result.get("pmid")
@@ -377,6 +478,14 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studie
             (studies_by_grant or {})[gid] for gid in grant_ids if gid in (studies_by_grant or {})
         }
 
+        related_info = related_info_map.get(pmid, {})
+        gse_ids = parse_geo(related_info.get("gds"))
+        srx, srp = parse_sra(related_info.get("sra"))
+        dbgaps = parse_dbgap(related_info.get("gap"))
+        # SRX is experiment-level (many per submission); keep the coarser
+        # study-level SRP/GSE/dbGaP accessions instead.
+        dataset_ids = {*gse_ids, *srp, *dbgaps}
+
         publication_info = {
             "pubMedId": [pmid],
             "pubMedLink": [f"https://pubmed.ncbi.nlm.nih.gov/{pmid}"],
@@ -394,6 +503,7 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studie
             "studyId": [", ".join(sorted(study_ids)) if study_ids else PENDING_ANNOTATION],
             "assay": [PENDING_ANNOTATION],
             "tissue": [PENDING_ANNOTATION],
+            "datasetAlias": [", ".join(sorted(dataset_ids))],
             "accessibility": [accessibility],
             "secondaryGrantMatch": [", ".join(sorted(secondary_matches))],
         }

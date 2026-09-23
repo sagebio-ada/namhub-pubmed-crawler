@@ -181,10 +181,14 @@ are all multi-value (`STRING_LIST`) columns on the live table, so
 manually-curated values should be comma-separated. A `standard_terms`
 sheet lists the current controlled-vocabulary values for `assay` to help
 with that curation (`tissue` is free-text, with no controlled
-vocabulary). An extra `accessibility` column (not part of the
-Publications table) reports each publication's open-access status from
-Unpaywall, and is used to sort open-access publications first, since
-those are generally easier to review.
+vocabulary). `datasetAlias` is auto-filled with any GEO/SRA(study-level)/
+dbGaP accessions NCBI's pubmed→gds/sra/bioproject elink associates with
+that publication -- i.e. datasets generated *for* the paper, not ones it
+merely cites -- and is left blank if there aren't any. An extra
+`accessibility` column (not part of the Publications table) reports each
+publication's open-access status from Unpaywall, and is used to sort
+open-access publications first, since those are generally easier to
+review.
 
 <!-- Links -->
 

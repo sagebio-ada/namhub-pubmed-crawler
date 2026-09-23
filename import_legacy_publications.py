@@ -33,8 +33,12 @@ from pubmed_crawler import (
     base_grant_number,
     generate_manifest,
     get_grants,
+    get_related_info,
     get_studies,
     login,
+    parse_dbgap,
+    parse_geo,
+    parse_sra,
 )
 
 
@@ -132,12 +136,19 @@ def build_table(records, curr_grants, email, studies_by_grant=None):
         ):
             oa_map[raw_doi] = accessibility
 
+    related_info_map = get_related_info({r["pmid"] for r in records if r["pmid"]})
+
     rows = []
     for r in records:
         grant_ids = match_grant_ids(r["grant_numbers"], curr_grants)
         study_ids = {
             (studies_by_grant or {})[gid] for gid in grant_ids if gid in (studies_by_grant or {})
         }
+        related_info = related_info_map.get(r["pmid"], {})
+        gse_ids = parse_geo(related_info.get("gds"))
+        _, srp = parse_sra(related_info.get("sra"))
+        dbgaps = parse_dbgap(related_info.get("gap"))
+        dataset_ids = {*gse_ids, *srp, *dbgaps}
         publication_info = {
             "pubMedId": [r["pmid"]],
             "pubMedLink": [f"https://pubmed.ncbi.nlm.nih.gov/{r['pmid']}"],
@@ -152,6 +163,7 @@ def build_table(records, curr_grants, email, studies_by_grant=None):
             "studyId": [", ".join(sorted(study_ids)) if study_ids else PENDING_ANNOTATION],
             "assay": [PENDING_ANNOTATION],
             "tissue": [PENDING_ANNOTATION],
+            "datasetAlias": [", ".join(sorted(dataset_ids))],
             "accessibility": [oa_map.get(r["doi"], "Unknown")],
         }
         rows.append(pd.DataFrame(publication_info))

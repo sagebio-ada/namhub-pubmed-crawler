@@ -13,6 +13,7 @@ import argparse
 import getpass
 import json
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from dotenv import load_dotenv
@@ -33,6 +34,25 @@ PUBLICATIONS_SCHEMA_URL = (
     "json_schemas/Publications.json"
 )
 PENDING_ANNOTATION = "Pending Annotation"
+
+# Matches the "base" part of an NIH grant number (activity code + IC code +
+# serial number, e.g. "UM1TR006029"), ignoring the leading application-type
+# digit and trailing "-<support year><suffix>" that appear in the full form
+# (e.g. "1UM1TR006029-01"). PubMed's [Grant number] search field, and the
+# grantId strings in its grantsList, use this base form.
+NIH_GRANT_NUMBER_RE = re.compile(r"[A-Z][A-Z0-9]\d[A-Z]{2}\d{5,7}")
+
+
+def base_grant_number(raw):
+    """Extract the base NIH grant number from a full grant number string.
+
+    Falls back to the punctuation-stripped, uppercased input if no NIH-style
+    grant number is found (e.g. for non-NIH funders).
+    """
+    if not raw:
+        return ""
+    match = NIH_GRANT_NUMBER_RE.search(raw.upper())
+    return match.group(0) if match else normalize_grant_number(raw)
 
 
 def login():
@@ -120,7 +140,8 @@ def get_pmids(grants):
         set: PubMed IDs
     """
     print("Getting PMIDs from NCBI... ")
-    grant_numbers = grants["grantNumber"].tolist()
+    grant_numbers = {base_grant_number(n) for n in grants["grantNumber"]}
+    grant_numbers.discard("")
     search_term = "[Grant number] OR ".join(grant_numbers) + "[Grant number]"
     handle = Entrez.esearch(
         db="pubmed", term=search_term, retmax=100_000, retmode="xml", sort="relevance"
@@ -156,7 +177,7 @@ def match_grant_ids(pubmed_grants, curr_grants):
         set: matched NAMHub grantId values
     """
     known = {
-        normalize_grant_number(number): grant_id
+        base_grant_number(number): grant_id
         for number, grant_id in zip(
             curr_grants["grantNumber"], curr_grants["grantId"]
         )

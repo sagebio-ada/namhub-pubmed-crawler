@@ -184,11 +184,13 @@ with that curation (`tissue` is free-text, with no controlled
 vocabulary). `datasetAlias` is auto-filled with any GEO/SRA(study-level)/
 dbGaP accessions NCBI's pubmed→gds/sra/bioproject elink associates with
 that publication -- i.e. datasets generated *for* the paper, not ones it
-merely cites -- and is left blank if there aren't any. An extra
-`accessibility` column (not part of the Publications table) reports each
-publication's open-access status from Unpaywall, and is used to sort
-open-access publications first, since those are generally easier to
-review.
+merely cites -- and is left blank if there aren't any. `abstract` is
+pulled from Europe PMC's `abstractText`, when available. `publicationAccessibility`
+reports each publication's open-access status from Unpaywall (its enum
+only allows "Open Access"/"Restricted Access" -- left blank rather than
+some third placeholder if it can't be determined), and the manifest is
+sorted by it so open-access publications are reviewed first, since
+those are generally easier to check.
 
 <!-- Links -->
 

@@ -27,10 +27,11 @@ from pubmed_crawler import login
 LIST_TYPES = {"STRING_LIST"}
 INTEGER_TYPES = {"INTEGER"}
 
-# Manifest-only helper columns that don't correspond to a table column (e.g.
-# "accessibility", added by pubmed_crawler.py/import_legacy_publications.py
-# to help curators sort/prioritize review) and are dropped before upload.
-HELPER_COLUMNS = {"accessibility", "secondaryGrantMatch"}
+# Manifest-only helper columns that don't correspond to a table column --
+# e.g. "secondaryGrantMatch" (pubmed_crawler.py's -s/--supplemental_grants
+# match provenance) -- and are dropped before upload. (accessibility is now
+# a real table column, publicationAccessibility, so it's not listed here.)
+HELPER_COLUMNS = {"secondaryGrantMatch"}
 
 
 def get_args():

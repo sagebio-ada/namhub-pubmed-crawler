@@ -283,10 +283,13 @@ def _fetch_oa_status(raw_doi, email):
     """Fetch open-access status from Unpaywall for a single DOI.
 
     Returns:
-        tuple: (raw_doi, accessibility)
+        tuple: (raw_doi, accessibility). accessibility is None if it
+        couldn't be determined -- publicationAccessibility's enum only
+        allows "Open Access"/"Restricted Access", so an unknown status is
+        left blank rather than given some third placeholder value.
     """
     if not raw_doi:
-        return raw_doi, "Unknown"
+        return raw_doi, None
     try:
         response = requests.get(
             f"https://api.unpaywall.org/v2/{raw_doi}?email={email}", timeout=10
@@ -296,7 +299,7 @@ def _fetch_oa_status(raw_doi, email):
             return raw_doi, "Open Access"
         return raw_doi, "Restricted Access"
     except (requests.exceptions.HTTPError, requests.exceptions.RequestException, json.JSONDecodeError):
-        return raw_doi, "Unknown"
+        return raw_doi, None
 
 
 def get_related_info(pmids, batch_size=200, max_retries=3):
@@ -495,8 +498,10 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studie
         except AttributeError:
             authors = []  # There is not an author list with this publication.
         keywords = get_keywords(result)
+        raw_abstract = result.get("abstractText")
+        abstract = raw_abstract.replace("<h4>", " ").replace("</h4>", ": ").strip() if raw_abstract else None
 
-        accessibility = oa_map.get(raw_doi, "Unknown")
+        accessibility = oa_map.get(raw_doi)
 
         grants = result.get("grantsList", {}).get("grant", [])
         grant_ids = match_grant_ids(grants, curr_grants)
@@ -520,6 +525,7 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studie
             "publicationYear": [int(year) if year else None],
             "authors": [", ".join(authors)],
             "journal": [journal],
+            "abstract": [abstract],
             # grantId, studyId, namId, assay, and tissue are all
             # multi-value (STRING_LIST) columns on the live Publications
             # table, so multiple values are comma-separated here.
@@ -531,7 +537,7 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studie
             "assay": [PENDING_ANNOTATION],
             "tissue": [PENDING_ANNOTATION],
             "datasetAlias": [", ".join(sorted(dataset_ids))],
-            "accessibility": [accessibility],
+            "publicationAccessibility": [accessibility],
             "secondaryGrantMatch": [", ".join(sorted(secondary_matches))],
         }
         row = pd.DataFrame(publication_info)
@@ -640,7 +646,7 @@ def main():
 
         # Generate manifest with open-access publications listed first.
         generate_manifest(
-            table.sort_values(by="accessibility"), args.output_name
+            table.sort_values(by="publicationAccessibility"), args.output_name
         )
 
     print("-- DONE --")

@@ -141,10 +141,7 @@ def build_table(records, curr_grants, email, studies_by_grant=None):
 
     all_pmids = {r["pmid"] for r in records if r["pmid"]}
     related_info_map = get_related_info(all_pmids)
-    keywords_map = {
-        rec["pmid"]: ", ".join(get_keywords(rec))
-        for rec in get_europepmc_records(all_pmids)
-    }
+    europepmc_by_pmid = {rec["pmid"]: rec for rec in get_europepmc_records(all_pmids)}
 
     rows = []
     for r in records:
@@ -157,6 +154,9 @@ def build_table(records, curr_grants, email, studies_by_grant=None):
         _, srp = parse_sra(related_info.get("sra"))
         dbgaps = parse_dbgap(related_info.get("gap"))
         dataset_ids = {*gse_ids, *srp, *dbgaps}
+        epmc_record = europepmc_by_pmid.get(r["pmid"], {})
+        raw_abstract = epmc_record.get("abstractText")
+        abstract = raw_abstract.replace("<h4>", " ").replace("</h4>", ": ").strip() if raw_abstract else None
         publication_info = {
             "pubMedId": [r["pmid"]],
             "pubMedLink": [f"https://pubmed.ncbi.nlm.nih.gov/{r['pmid']}"],
@@ -164,7 +164,8 @@ def build_table(records, curr_grants, email, studies_by_grant=None):
             "publicationYear": [int(r["year"]) if r["year"] else None],
             "authors": [r["authors"]],
             "journal": [r["journal"]],
-            "keywords": [keywords_map.get(r["pmid"], "")],
+            "abstract": [abstract],
+            "keywords": [", ".join(get_keywords(epmc_record))],
             "doi": ["https://doi.org/" + r["doi"] if r["doi"] else None],
             "grantId": [", ".join(sorted(grant_ids))],
             "namId": [PENDING_ANNOTATION],
@@ -172,7 +173,7 @@ def build_table(records, curr_grants, email, studies_by_grant=None):
             "assay": [PENDING_ANNOTATION],
             "tissue": [PENDING_ANNOTATION],
             "datasetAlias": [", ".join(sorted(dataset_ids))],
-            "accessibility": [oa_map.get(r["doi"], "Unknown")],
+            "publicationAccessibility": [oa_map.get(r["doi"])],
         }
         rows.append(pd.DataFrame(publication_info))
     return pd.concat(rows)
@@ -196,7 +197,7 @@ def main():
           f"{len(records) - matched} left with grantId blank for curator review\n")
 
     table = build_table(records, curr_grants, email, studies_by_grant)
-    generate_manifest(table.sort_values(by="accessibility"), args.output_name)
+    generate_manifest(table.sort_values(by="publicationAccessibility"), args.output_name)
     print("-- DONE --")
 
 

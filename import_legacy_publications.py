@@ -152,7 +152,6 @@ def build_table(records, curr_grants, email, studies_by_grant=None):
             "studyId": [", ".join(sorted(study_ids)) if study_ids else PENDING_ANNOTATION],
             "assay": [PENDING_ANNOTATION],
             "tissue": [PENDING_ANNOTATION],
-            "synapseEntityId": [None],
             "accessibility": [oa_map.get(r["doi"], "Unknown")],
         }
         rows.append(pd.DataFrame(publication_info))

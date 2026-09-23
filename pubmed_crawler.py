@@ -394,7 +394,6 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studie
             "studyId": [", ".join(sorted(study_ids)) if study_ids else PENDING_ANNOTATION],
             "assay": [PENDING_ANNOTATION],
             "tissue": [PENDING_ANNOTATION],
-            "synapseEntityId": [None],
             "accessibility": [accessibility],
             "secondaryGrantMatch": [", ".join(sorted(secondary_matches))],
         }

@@ -172,17 +172,19 @@ minutes. Once complete, a manifest will be found in a folder called
 The manifest's `manifest` sheet has one row per new publication, with
 columns matching the live NAMHub Publications table (`camelCase`, e.g.
 `pubMedId`, `grantId`) rather than the LinkML/JSON-schema's `PascalCase`
-field names. Some required columns — `namId`, `studyId`, `dataType`, and
-`assay` — cannot be determined from PubMed metadata alone, and are filled
-in as `Pending Annotation` for a curator to fill in by hand before the rows
-are uploaded to Synapse. `grantId`, `studyId`, `namId`, `dataType`, and
-`assay` are all multi-value (`STRING_LIST`) columns on the live table, so
+field names. `studyId` is auto-filled whenever `grantId` resolves to one
+of the 6 core grants (via the Studies table's own grant linkage);
+otherwise, along with `namId`, `assay`, and `tissue`, it's filled in as
+`Pending Annotation` for a curator to fill in by hand before the rows are
+uploaded to Synapse. `grantId`, `studyId`, `namId`, `assay`, and `tissue`
+are all multi-value (`STRING_LIST`) columns on the live table, so
 manually-curated values should be comma-separated. A `standard_terms`
-sheet lists the current controlled-vocabulary values for `dataType` and
-`assay` to help with that curation. An extra `accessibility` column (not
-part of the Publications table) reports each publication's open-access
-status from Unpaywall, and is used to sort open-access publications first,
-since those are generally easier to review.
+sheet lists the current controlled-vocabulary values for `assay` to help
+with that curation (`tissue` is free-text, with no controlled
+vocabulary). An extra `accessibility` column (not part of the
+Publications table) reports each publication's open-access status from
+Unpaywall, and is used to sort open-access publications first, since
+those are generally easier to review.
 
 <!-- Links -->
 

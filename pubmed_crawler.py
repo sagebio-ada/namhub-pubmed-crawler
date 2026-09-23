@@ -110,6 +110,17 @@ def get_args():
         ),
     )
     parser.add_argument(
+        "-u",
+        "--study_id",
+        type=str,
+        default="syn75404711",
+        help=(
+            "Synapse table ID for the NAMHub Studies table, used to "
+            "auto-fill 'studyId' from a matched 'grantId'. "
+            "(Default: syn75404711)"
+        ),
+    )
+    parser.add_argument(
         "-o",
         "--output_name",
         type=str,
@@ -134,6 +145,21 @@ def get_args():
         ),
     )
     return parser.parse_args()
+
+
+def get_studies(syn, study_id="syn75404711"):
+    """Get the grantId -> studyId mapping from the Studies table.
+
+    Only Studies rows with a non-empty grantId are included (a few, like
+    NCATS-intramural TDC studies, have no NAMHub grant and can't be
+    auto-derived this way).
+
+    Returns:
+        dict: grantId -> studyId
+    """
+    studies = query(f"SELECT studyId, grantId FROM {study_id}")
+    studies = studies[studies["grantId"].notna() & (studies["grantId"] != "")]
+    return dict(zip(studies["grantId"], studies["studyId"]))
 
 
 def get_grants(syn, grant_id):
@@ -270,7 +296,7 @@ def _fetch_oa_status(raw_doi, email):
         return raw_doi, "Unknown"
 
 
-def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None):
+def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None, studies_by_grant=None):
     """Create dataframe of publications and their pulled data.
 
     Publication data is pulled in bulk using the Europe PMC API, since it's
@@ -347,6 +373,9 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None):
         grants = result.get("grantsList", {}).get("grant", [])
         grant_ids = match_grant_ids(grants, curr_grants)
         secondary_matches = match_secondary_grants(grants, supplemental_grant_numbers or set())
+        study_ids = {
+            (studies_by_grant or {})[gid] for gid in grant_ids if gid in (studies_by_grant or {})
+        }
 
         publication_info = {
             "pubMedId": [pmid],
@@ -362,7 +391,7 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None):
             "doi": [doi],
             "grantId": [", ".join(sorted(grant_ids))],
             "namId": [PENDING_ANNOTATION],
-            "studyId": [PENDING_ANNOTATION],
+            "studyId": [", ".join(sorted(study_ids)) if study_ids else PENDING_ANNOTATION],
             "dataType": [PENDING_ANNOTATION],
             "assay": [PENDING_ANNOTATION],
             "synapseEntityId": [None],
@@ -374,13 +403,14 @@ def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None):
     return pd.concat(table)
 
 
-def find_publications(syn, grant_id, table_id, email, supplemental_grant_numbers=None):
+def find_publications(syn, grant_id, table_id, email, supplemental_grant_numbers=None, study_id="syn75404711"):
     """Get list of publications based on NAMHub grants.
 
     Returns:
         df: publications data
     """
     grants = get_grants(syn, grant_id)
+    studies_by_grant = get_studies(syn, study_id)
     pmids = get_pmids(grants, supplemental_grant_numbers)
 
     # If user provided a table ID, only scrape info from publications
@@ -398,7 +428,7 @@ def find_publications(syn, grant_id, table_id, email, supplemental_grant_numbers
 
     if pmids:
         print("Pulling information from publications... ")
-        table = pull_info(pmids, grants, email, supplemental_grant_numbers)
+        table = pull_info(pmids, grants, email, supplemental_grant_numbers, studies_by_grant)
         print(f"  Publications pre-annotated: {len(table.index)}\n")
     else:
         table = pd.DataFrame()
@@ -464,7 +494,7 @@ def main():
               f"from {args.supplemental_grants}\n")
 
     table = find_publications(
-        syn, args.grant_id, args.table_id.strip(), email, supplemental_grant_numbers
+        syn, args.grant_id, args.table_id.strip(), email, supplemental_grant_numbers, args.study_id
     )
     if table.empty:
         print("Manifest not generated.")

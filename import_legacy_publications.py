@@ -33,6 +33,7 @@ from pubmed_crawler import (
     base_grant_number,
     generate_manifest,
     get_grants,
+    get_studies,
     login,
 )
 
@@ -51,6 +52,17 @@ def get_args():
         type=str,
         default="syn75404715",
         help="Synapse table/view ID for the NAMHub Grants table. (Default: syn75404715)",
+    )
+    parser.add_argument(
+        "-u",
+        "--study_id",
+        type=str,
+        default="syn75404711",
+        help=(
+            "Synapse table ID for the NAMHub Studies table, used to "
+            "auto-fill 'studyId' from a matched 'grantId'. "
+            "(Default: syn75404711)"
+        ),
     )
     parser.add_argument(
         "-o",
@@ -110,7 +122,7 @@ def match_grant_ids(grant_numbers, curr_grants):
     return {known[g] for g in grant_numbers if g in known}
 
 
-def build_table(records, curr_grants, email):
+def build_table(records, curr_grants, email, studies_by_grant=None):
     """Build a manifest dataframe, one row per input record."""
     unique_dois = {r["doi"] for r in records if r["doi"]}
     oa_map = {}
@@ -123,6 +135,9 @@ def build_table(records, curr_grants, email):
     rows = []
     for r in records:
         grant_ids = match_grant_ids(r["grant_numbers"], curr_grants)
+        study_ids = {
+            (studies_by_grant or {})[gid] for gid in grant_ids if gid in (studies_by_grant or {})
+        }
         publication_info = {
             "pubMedId": [r["pmid"]],
             "pubMedLink": [f"https://pubmed.ncbi.nlm.nih.gov/{r['pmid']}"],
@@ -134,7 +149,7 @@ def build_table(records, curr_grants, email):
             "doi": ["https://doi.org/" + r["doi"] if r["doi"] else None],
             "grantId": [", ".join(sorted(grant_ids))],
             "namId": [PENDING_ANNOTATION],
-            "studyId": [PENDING_ANNOTATION],
+            "studyId": [", ".join(sorted(study_ids)) if study_ids else PENDING_ANNOTATION],
             "dataType": [PENDING_ANNOTATION],
             "assay": [PENDING_ANNOTATION],
             "synapseEntityId": [None],
@@ -151,6 +166,7 @@ def main():
     email = os.getenv("ENTREZ_EMAIL")
 
     curr_grants = get_grants(syn, args.grant_id)
+    studies_by_grant = get_studies(syn, args.study_id)
     records = read_reporter_csv(args.input_csv)
     print(f"Read {len(records)} publication(s) from {args.input_csv}")
 
@@ -158,7 +174,7 @@ def main():
     print(f"  {matched} row(s) matched a NAMHub grant directly; "
           f"{len(records) - matched} left with grantId blank for curator review\n")
 
-    table = build_table(records, curr_grants, email)
+    table = build_table(records, curr_grants, email, studies_by_grant)
     generate_manifest(table.sort_values(by="accessibility"), args.output_name)
     print("-- DONE --")
 

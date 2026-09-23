@@ -10,10 +10,12 @@ Grants (syn75404715) and Publications (syn75404744) Synapse tables.
 """
 
 import argparse
+import csv
 import getpass
 import json
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from dotenv import load_dotenv
@@ -114,6 +116,23 @@ def get_args():
         default=datetime.today().strftime("%Y-%m-%d") + "_publications-manifest",
         help="Filename for output manifest. (Default: <current-date>_publications-manifest)",
     )
+    parser.add_argument(
+        "-s",
+        "--supplemental_grants",
+        type=str,
+        default=None,
+        help=(
+            "Path to a CSV (with a 'grantNumber' column) of additional, "
+            "non-primary grant numbers to also search PubMed with -- e.g. "
+            "predecessor/related grants a NAMHub publication cited alongside "
+            "one of the 6 core grants. Publications found only via these "
+            "grants still get a manifest row, but with 'grantId' left blank "
+            "(they're not NAMHub Grants table entries) and the matching "
+            "supplemental grant number(s) recorded in 'secondaryGrantMatch' "
+            "for curator review. Not set by default: the core grant set "
+            "already covers new NAMHub publications going forward."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -133,7 +152,20 @@ def get_grants(syn, grant_id):
     return grants
 
 
-def get_pmids(grants):
+def read_supplemental_grants(path):
+    """Read a supplemental-grants CSV (a 'grantNumber' column; other columns ignored).
+
+    Returns:
+        set: base NIH grant numbers
+    """
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        numbers = {base_grant_number(row["grantNumber"]) for row in reader}
+    numbers.discard("")
+    return numbers
+
+
+def get_pmids(grants, supplemental_grant_numbers=None):
     """Get list of PubMed IDs using grant numbers as search param.
 
     Returns:
@@ -141,6 +173,7 @@ def get_pmids(grants):
     """
     print("Getting PMIDs from NCBI... ")
     grant_numbers = {base_grant_number(n) for n in grants["grantNumber"]}
+    grant_numbers |= supplemental_grant_numbers or set()
     grant_numbers.discard("")
     search_term = "[Grant number] OR ".join(grant_numbers) + "[Grant number]"
     handle = Entrez.esearch(
@@ -194,6 +227,29 @@ def match_grant_ids(pubmed_grants, curr_grants):
     return matched
 
 
+def match_secondary_grants(pubmed_grants, supplemental_grant_numbers):
+    """Match a publication's raw PubMed grant strings to supplemental grant numbers.
+
+    Unlike match_grant_ids(), these don't resolve to a NAMHub grantId (the
+    grants aren't in the Grants table) -- this just reports which
+    supplemental grant number(s) the publication actually cites, for
+    curator review.
+
+    Returns:
+        set: matched base NIH grant numbers
+    """
+    matched = set()
+    for grant in pubmed_grants:
+        raw = grant.get("grantId")
+        if not raw:
+            continue
+        normalized = normalize_grant_number(raw)
+        for grant_number in supplemental_grant_numbers:
+            if grant_number and grant_number in normalized:
+                matched.add(grant_number)
+    return matched
+
+
 def _fetch_oa_status(raw_doi, email):
     """Fetch open-access status from Unpaywall for a single DOI.
 
@@ -214,7 +270,7 @@ def _fetch_oa_status(raw_doi, email):
         return raw_doi, "Unknown"
 
 
-def pull_info(pmids, curr_grants, email):
+def pull_info(pmids, curr_grants, email, supplemental_grant_numbers=None):
     """Create dataframe of publications and their pulled data.
 
     Publication data is pulled in bulk using the Europe PMC API, since it's
@@ -235,8 +291,19 @@ def pull_info(pmids, curr_grants, email):
         "format": "json",
         "pageSize": 1_000,
     }
-    response = json.loads(requests.post(url=pmc_url, data=data).content)
-    results = response.get("resultList").get("result")
+    results = None
+    max_retries = 3
+    for attempt in range(max_retries):
+        response = json.loads(requests.post(url=pmc_url, data=data).content)
+        result_list = response.get("resultList")
+        if result_list is not None:
+            results = result_list.get("result")
+            break
+        if attempt < max_retries - 1:
+            print(f"  Europe PMC search unavailable ({response.get('errMsg', response)}), retrying...")
+            time.sleep(5)
+    if results is None:
+        raise RuntimeError(f"Europe PMC search failed after {max_retries} attempts: {response}")
 
     # Filter down to only publications that are in the list of PMIDs and not errata.
     filtered_results = [
@@ -279,6 +346,7 @@ def pull_info(pmids, curr_grants, email):
 
         grants = result.get("grantsList", {}).get("grant", [])
         grant_ids = match_grant_ids(grants, curr_grants)
+        secondary_matches = match_secondary_grants(grants, supplemental_grant_numbers or set())
 
         publication_info = {
             "pubMedId": [pmid],
@@ -299,20 +367,21 @@ def pull_info(pmids, curr_grants, email):
             "assay": [PENDING_ANNOTATION],
             "synapseEntityId": [None],
             "accessibility": [accessibility],
+            "secondaryGrantMatch": [", ".join(sorted(secondary_matches))],
         }
         row = pd.DataFrame(publication_info)
         table.append(row)
     return pd.concat(table)
 
 
-def find_publications(syn, grant_id, table_id, email):
+def find_publications(syn, grant_id, table_id, email, supplemental_grant_numbers=None):
     """Get list of publications based on NAMHub grants.
 
     Returns:
         df: publications data
     """
     grants = get_grants(syn, grant_id)
-    pmids = get_pmids(grants)
+    pmids = get_pmids(grants, supplemental_grant_numbers)
 
     # If user provided a table ID, only scrape info from publications
     # not already listed in the provided table.
@@ -329,7 +398,7 @@ def find_publications(syn, grant_id, table_id, email):
 
     if pmids:
         print("Pulling information from publications... ")
-        table = pull_info(pmids, grants, email)
+        table = pull_info(pmids, grants, email, supplemental_grant_numbers)
         print(f"  Publications pre-annotated: {len(table.index)}\n")
     else:
         table = pd.DataFrame()
@@ -388,7 +457,15 @@ def main():
     Entrez.email = email
     Entrez.api_key = os.getenv("ENTREZ_API_KEY")
 
-    table = find_publications(syn, args.grant_id, args.table_id.strip(), email)
+    supplemental_grant_numbers = None
+    if args.supplemental_grants:
+        supplemental_grant_numbers = read_supplemental_grants(args.supplemental_grants)
+        print(f"Loaded {len(supplemental_grant_numbers)} supplemental grant number(s) "
+              f"from {args.supplemental_grants}\n")
+
+    table = find_publications(
+        syn, args.grant_id, args.table_id.strip(), email, supplemental_grant_numbers
+    )
     if table.empty:
         print("Manifest not generated.")
     else:

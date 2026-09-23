@@ -110,10 +110,32 @@ the following columns:
 - `grantId`
 - `grantNumber`
 
+### Supplemental grants
+
+Some NAMHub-relevant publications cite predecessor or related NIH grants
+rather than (or in addition to) one of the 6 core NAMHub grants -- e.g. a
+TDC's earlier R01/U-series award that a paper's core NAMHub-funded work
+grew out of. `supplemental_grants.csv` in this repo tracks such grant
+numbers (with a `sourcePmid`/`note` per row for provenance). Pass it with
+`-s` to also search PubMed using these grant numbers:
+
+```
+uv run pubmed_crawler.py -s supplemental_grants.csv
+```
+
+Publications found *only* via a supplemental grant still get a manifest
+row, but `grantId` is left blank (they're not linked to a Grants table
+entry) and the matching supplemental grant number(s) are recorded in an
+extra `secondaryGrantMatch` column for curator review. This isn't run by
+default -- new NAMHub publications are expected to cite one of the 6 core
+grants going forward, so the core grant set alone should catch them; the
+supplemental list is for occasionally checking whether related predecessor
+grants turned up anything worth a second look.
+
 Below is the full usage of the script:
 
 ```
-usage: pubmed_crawler.py [-h] [-g GRANT_ID] [-t TABLE_ID] [-o OUTPUT_NAME]
+usage: pubmed_crawler.py [-h] [-g GRANT_ID] [-t TABLE_ID] [-o OUTPUT_NAME] [-s SUPPLEMENTAL_GRANTS]
 
 Get PubMed information from a list of NAMHub grant numbers and put the
 results into an xlsx manifest. The Publications table ID is used to scrape
@@ -133,6 +155,10 @@ optional arguments:
   -o OUTPUT_NAME, --output_name OUTPUT_NAME
                         Filename for output manifest. (Default:
                         <current-date>_publications-manifest)
+  -s SUPPLEMENTAL_GRANTS, --supplemental_grants SUPPLEMENTAL_GRANTS
+                        Path to a CSV (with a 'grantNumber' column) of
+                        additional, non-primary grant numbers to also search
+                        PubMed with. Not set by default.
 ```
 
 ### Output

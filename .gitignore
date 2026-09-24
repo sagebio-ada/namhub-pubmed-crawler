@@ -1,5 +1,6 @@
 # other
 output/
+pdf_download_report.csv
 
 # Secrets
 .env
